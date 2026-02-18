@@ -13,7 +13,6 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
-  withSequence,
   Easing,
   runOnJS,
   cancelAnimation,
@@ -82,28 +81,31 @@ export default function SlideshowScreen({ route, navigation }) {
 
     const timingConfig = { duration: TRANSITION_DURATION, easing: Easing.bezier(0.4, 0, 0.2, 1) };
 
-    const complete = () => {
-      runOnJS(onTransitionComplete)(newIndex);
+    const done = (finished) => {
+      'worklet';
+      if (finished) {
+        runOnJS(onTransitionComplete)(newIndex);
+      }
     };
 
     switch (transition) {
       case 'fade':
         currentOpacity.value = withTiming(0, timingConfig);
-        nextOpacity.value = withTiming(1, timingConfig, () => complete());
+        nextOpacity.value = withTiming(1, timingConfig, done);
         break;
 
       case 'slide-left':
         currentTranslateX.value = withTiming(-SCREEN_W, timingConfig);
         nextTranslateX.value = SCREEN_W;
         nextOpacity.value = 1;
-        nextTranslateX.value = withTiming(0, timingConfig, () => complete());
+        nextTranslateX.value = withTiming(0, timingConfig, done);
         break;
 
       case 'slide-right':
         currentTranslateX.value = withTiming(SCREEN_W, timingConfig);
         nextTranslateX.value = -SCREEN_W;
         nextOpacity.value = 1;
-        nextTranslateX.value = withTiming(0, timingConfig, () => complete());
+        nextTranslateX.value = withTiming(0, timingConfig, done);
         break;
 
       case 'zoom-in':
@@ -111,28 +113,31 @@ export default function SlideshowScreen({ route, navigation }) {
         currentOpacity.value = withTiming(0, timingConfig);
         nextScale.value = 0.5;
         nextOpacity.value = withTiming(1, timingConfig);
-        nextScale.value = withTiming(1, timingConfig, () => complete());
+        nextScale.value = withTiming(1, timingConfig, done);
         break;
 
       case 'zoom-out':
         currentScale.value = withTiming(0.5, timingConfig);
         currentOpacity.value = withTiming(0, timingConfig);
         nextOpacity.value = withTiming(1, timingConfig);
-        nextScale.value = withTiming(1, timingConfig, () => complete());
+        nextScale.value = withTiming(1, timingConfig, done);
         break;
 
       case 'flip':
         currentScale.value = withTiming(0.8, { duration: TRANSITION_DURATION / 2, easing: Easing.in(Easing.ease) });
-        currentOpacity.value = withTiming(0, { duration: TRANSITION_DURATION / 2 }, () => {
-          nextOpacity.value = withTiming(1, { duration: TRANSITION_DURATION / 2, easing: Easing.out(Easing.ease) });
-          nextScale.value = 0.8;
-          nextScale.value = withTiming(1, { duration: TRANSITION_DURATION / 2 }, () => complete());
+        currentOpacity.value = withTiming(0, { duration: TRANSITION_DURATION / 2 }, (finished) => {
+          'worklet';
+          if (finished) {
+            nextOpacity.value = withTiming(1, { duration: TRANSITION_DURATION / 2, easing: Easing.out(Easing.ease) });
+            nextScale.value = 0.8;
+            nextScale.value = withTiming(1, { duration: TRANSITION_DURATION / 2 }, done);
+          }
         });
         break;
 
       case 'dissolve':
         currentOpacity.value = withTiming(0, { duration: TRANSITION_DURATION * 1.2, easing: Easing.linear });
-        nextOpacity.value = withTiming(1, { duration: TRANSITION_DURATION * 1.2, easing: Easing.linear }, () => complete());
+        nextOpacity.value = withTiming(1, { duration: TRANSITION_DURATION * 1.2, easing: Easing.linear }, done);
         break;
 
       case 'kenburns':
@@ -140,16 +145,15 @@ export default function SlideshowScreen({ route, navigation }) {
         currentScale.value = withTiming(1.2, { duration: TRANSITION_DURATION * 1.5 });
         nextOpacity.value = withTiming(1, { duration: TRANSITION_DURATION * 1.5 });
         nextScale.value = 1.1;
-        nextScale.value = withTiming(1, { duration: TRANSITION_DURATION * 1.5 }, () => complete());
+        nextScale.value = withTiming(1, { duration: TRANSITION_DURATION * 1.5 }, done);
         break;
 
       case 'blur':
-        // Blur not natively supported in reanimated, use fade + scale as alternative
         currentScale.value = withTiming(1.1, timingConfig);
         currentOpacity.value = withTiming(0, timingConfig);
         nextScale.value = 1.1;
         nextOpacity.value = withTiming(1, timingConfig);
-        nextScale.value = withTiming(1, timingConfig, () => complete());
+        nextScale.value = withTiming(1, timingConfig, done);
         break;
 
       case 'rotate':
@@ -160,12 +164,12 @@ export default function SlideshowScreen({ route, navigation }) {
         nextScale.value = 0.8;
         nextOpacity.value = withTiming(1, timingConfig);
         nextRotate.value = withTiming(0, timingConfig);
-        nextScale.value = withTiming(1, timingConfig, () => complete());
+        nextScale.value = withTiming(1, timingConfig, done);
         break;
 
       default:
         currentOpacity.value = withTiming(0, timingConfig);
-        nextOpacity.value = withTiming(1, timingConfig, () => complete());
+        nextOpacity.value = withTiming(1, timingConfig, done);
     }
   }, [transition, isTransitioning, onTransitionComplete, currentOpacity, currentTranslateX, currentScale, currentRotate, nextOpacity, nextTranslateX, nextScale, nextRotate]);
 
