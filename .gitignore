@@ -1,5 +1,14 @@
 node_modules/
 dist/
-data/selections/
+.expo/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
+android/
+ios/
 .DS_Store
 *.log
