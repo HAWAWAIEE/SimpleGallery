@@ -6,7 +6,6 @@ import {
   StyleSheet,
   Dimensions,
   StatusBar,
-  ScrollView,
   Pressable,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -57,7 +56,6 @@ export default function SlideshowScreen({ route, navigation }) {
   const progressWidth = useSharedValue(0);
 
   const resetAnimationValues = useCallback(() => {
-    'worklet';
     currentOpacity.value = 1;
     currentTranslateX.value = 0;
     currentScale.value = 1;
