@@ -5,7 +5,7 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
+  useWindowDimensions,
   ActivityIndicator,
   Modal,
   Pressable,
@@ -15,13 +15,15 @@ import { Image } from 'expo-image';
 import { getSelections } from '../storage/selections';
 import { shuffleArray } from '../utils/transitions';
 
-const { width } = Dimensions.get('window');
-const NUM_COLUMNS = 3;
 const SPACING = 2;
-const THUMB_SIZE = (width - SPACING * (NUM_COLUMNS + 1)) / NUM_COLUMNS;
 
 export default function GalleryScreen({ route, navigation }) {
   const { albumId, albumTitle } = route.params;
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
+  const NUM_COLUMNS = isLandscape ? 5 : 3;
+  const THUMB_SIZE = (width - SPACING * (NUM_COLUMNS + 1)) / NUM_COLUMNS;
+
   const [assets, setAssets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -60,13 +62,11 @@ export default function GalleryScreen({ route, navigation }) {
       setHasNextPage(result.hasNextPage);
       setLoading(false);
 
-      // Load selections
       const sels = await getSelections(albumId);
       setSelectedIds(sels);
     })();
   }, [albumId, loadAssets]);
 
-  // Refresh selections when returning from SelectionScreen
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', async () => {
       const sels = await getSelections(albumId);
@@ -85,7 +85,6 @@ export default function GalleryScreen({ route, navigation }) {
     setLoadingMore(false);
   };
 
-  // Set header with menu button
   useLayoutEffect(() => {
     navigation.setOptions({
       title: albumTitle,
@@ -104,7 +103,6 @@ export default function GalleryScreen({ route, navigation }) {
   const startSlideshow = async (mode, useSelection) => {
     setMenuVisible(false);
 
-    // If using selection, load all assets first to filter
     let slideshowAssets;
     if (useSelection) {
       const allAssets = await loadAllAssets();
@@ -127,7 +125,6 @@ export default function GalleryScreen({ route, navigation }) {
   };
 
   const loadAllAssets = async () => {
-    // Load all assets for slideshow (not just first page)
     let all = [...assets];
     let cursor = endCursor;
     let more = hasNextPage;
@@ -150,7 +147,7 @@ export default function GalleryScreen({ route, navigation }) {
 
   const renderItem = ({ item, index }) => (
     <TouchableOpacity
-      style={styles.thumbWrapper}
+      style={[styles.thumbWrapper, { width: THUMB_SIZE, height: THUMB_SIZE }]}
       onPress={() => openViewer(index)}
       activeOpacity={0.7}
     >
@@ -180,6 +177,7 @@ export default function GalleryScreen({ route, navigation }) {
   return (
     <View style={styles.container}>
       <FlatList
+        key={`gallery-${NUM_COLUMNS}`}
         data={assets}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
@@ -198,11 +196,6 @@ export default function GalleryScreen({ route, navigation }) {
             <Text style={styles.emptyText}>사진이 없습니다.</Text>
           </View>
         }
-        getItemLayout={(data, index) => ({
-          length: THUMB_SIZE + SPACING,
-          offset: (THUMB_SIZE + SPACING) * Math.floor(index / NUM_COLUMNS),
-          index,
-        })}
       />
 
       {/* Full-screen image viewer */}
@@ -334,8 +327,6 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 200 },
   list: { padding: SPACING / 2 },
   thumbWrapper: {
-    width: THUMB_SIZE,
-    height: THUMB_SIZE,
     margin: SPACING / 2,
     borderRadius: 2,
     overflow: 'hidden',

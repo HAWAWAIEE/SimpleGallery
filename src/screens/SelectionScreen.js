@@ -5,20 +5,22 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
+  useWindowDimensions,
   ActivityIndicator,
 } from 'react-native';
 import * as MediaLibrary from 'expo-media-library';
 import { Image } from 'expo-image';
 import { getSelections, saveSelections } from '../storage/selections';
 
-const { width } = Dimensions.get('window');
-const NUM_COLUMNS = 3;
 const SPACING = 3;
-const THUMB_SIZE = (width - SPACING * (NUM_COLUMNS + 1)) / NUM_COLUMNS;
 
 export default function SelectionScreen({ route, navigation }) {
   const { albumId, albumTitle } = route.params;
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
+  const NUM_COLUMNS = isLandscape ? 5 : 3;
+  const THUMB_SIZE = (width - SPACING * (NUM_COLUMNS + 1)) / NUM_COLUMNS;
+
   const [assets, setAssets] = useState([]);
   const [selectedIds, setSelectedIds] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -91,7 +93,7 @@ export default function SelectionScreen({ route, navigation }) {
     const selected = selectedIds.includes(item.id);
     return (
       <TouchableOpacity
-        style={[styles.thumbWrapper, selected && styles.thumbSelected]}
+        style={[styles.thumbWrapper, { width: THUMB_SIZE, height: THUMB_SIZE }, selected && styles.thumbSelected]}
         onPress={() => toggleItem(item.id)}
         activeOpacity={0.7}
       >
@@ -140,6 +142,7 @@ export default function SelectionScreen({ route, navigation }) {
 
       {/* Grid */}
       <FlatList
+        key={`selection-${NUM_COLUMNS}`}
         data={assets}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
@@ -200,8 +203,6 @@ const styles = StyleSheet.create({
   toolbarBtnText: { color: '#fff', fontSize: 13 },
   list: { padding: SPACING / 2 },
   thumbWrapper: {
-    width: THUMB_SIZE,
-    height: THUMB_SIZE,
     margin: SPACING / 2,
     borderRadius: 4,
     overflow: 'hidden',

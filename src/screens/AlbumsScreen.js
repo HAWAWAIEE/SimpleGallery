@@ -5,19 +5,21 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
+  useWindowDimensions,
   ActivityIndicator,
   Alert,
 } from 'react-native';
 import * as MediaLibrary from 'expo-media-library';
 import { Image } from 'expo-image';
 
-const { width } = Dimensions.get('window');
-const NUM_COLUMNS = 2;
 const SPACING = 8;
-const CARD_WIDTH = (width - SPACING * (NUM_COLUMNS + 1)) / NUM_COLUMNS;
 
 export default function AlbumsScreen({ navigation }) {
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
+  const NUM_COLUMNS = isLandscape ? 4 : 2;
+  const CARD_WIDTH = (width - SPACING * (NUM_COLUMNS + 1)) / NUM_COLUMNS;
+
   const [albums, setAlbums] = useState([]);
   const [loading, setLoading] = useState(true);
   const [hasPermission, setHasPermission] = useState(null);
@@ -35,7 +37,6 @@ export default function AlbumsScreen({ navigation }) {
         includeSmartAlbums: true,
       });
 
-      // Get thumbnail for each album
       const albumsWithThumbnails = await Promise.all(
         albumList
           .filter((album) => album.assetCount > 0)
@@ -54,7 +55,6 @@ export default function AlbumsScreen({ navigation }) {
           })
       );
 
-      // Also add "All Photos" virtual album
       const allAssets = await MediaLibrary.getAssetsAsync({
         first: 1,
         mediaType: 'photo',
@@ -96,7 +96,7 @@ export default function AlbumsScreen({ navigation }) {
 
   const renderAlbum = ({ item }) => (
     <TouchableOpacity
-      style={styles.card}
+      style={[styles.card, { width: CARD_WIDTH }]}
       onPress={() => handleAlbumPress(item)}
       activeOpacity={0.7}
     >
@@ -146,6 +146,7 @@ export default function AlbumsScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <FlatList
+        key={`albums-${NUM_COLUMNS}`}
         data={albums}
         renderItem={renderAlbum}
         keyExtractor={(item) => item.id}
@@ -178,7 +179,6 @@ const styles = StyleSheet.create({
     marginBottom: SPACING,
   },
   card: {
-    width: CARD_WIDTH,
     backgroundColor: '#1e1e1e',
     borderRadius: 12,
     overflow: 'hidden',

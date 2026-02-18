@@ -4,9 +4,9 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
   StatusBar,
   Pressable,
+  useWindowDimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
 import Animated, {
@@ -19,13 +19,19 @@ import Animated, {
 } from 'react-native-reanimated';
 import { TRANSITIONS, SPEED_OPTIONS } from '../utils/transitions';
 
-const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const TRANSITION_DURATION = 800;
 
-const AnimatedImage = Animated.createAnimatedComponent(Image);
-
+/**
+ * Double-buffer slideshow:
+ * - Two permanent image layers (A and B) always exist.
+ * - `activeLayer` tracks which is currently visible ('A' or 'B').
+ * - On transition, the *inactive* layer loads the new image, then we animate.
+ * - After animation, we flip `activeLayer`. No image source swap on a visible layer = no flash.
+ */
 export default function SlideshowScreen({ route, navigation }) {
   const { assets } = route.params;
+  const { width: SCREEN_W, height: SCREEN_H } = useWindowDimensions();
+
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
   const [showControls, setShowControls] = useState(true);
@@ -33,145 +39,184 @@ export default function SlideshowScreen({ route, navigation }) {
   const [transition, setTransition] = useState('fade');
   const [speed, setSpeed] = useState(4000);
   const [isTransitioning, setIsTransitioning] = useState(false);
-  const [showNext, setShowNext] = useState(false);
-  const [nextIndex, setNextIndex] = useState(null);
+
+  // Double-buffer: two layers with their own image index
+  const [layerAIndex, setLayerAIndex] = useState(0);
+  const [layerBIndex, setLayerBIndex] = useState(0);
+  const activeLayerRef = useRef('A');
+  const [activeLayer, setActiveLayer] = useState('A');
 
   const timerRef = useRef(null);
   const controlsTimerRef = useRef(null);
 
-  // Animation shared values - current image
-  const currentOpacity = useSharedValue(1);
-  const currentTranslateX = useSharedValue(0);
-  const currentScale = useSharedValue(1);
-  const currentRotate = useSharedValue(0);
+  // Animation shared values - Layer A
+  const layerAOpacity = useSharedValue(1);
+  const layerATranslateX = useSharedValue(0);
+  const layerAScale = useSharedValue(1);
+  const layerARotate = useSharedValue(0);
 
-  // Animation shared values - next image
-  const nextOpacity = useSharedValue(0);
-  const nextTranslateX = useSharedValue(0);
-  const nextScale = useSharedValue(1);
-  const nextRotate = useSharedValue(0);
+  // Animation shared values - Layer B
+  const layerBOpacity = useSharedValue(0);
+  const layerBTranslateX = useSharedValue(0);
+  const layerBScale = useSharedValue(1);
+  const layerBRotate = useSharedValue(0);
 
   // Progress bar
   const progressWidth = useSharedValue(0);
 
-  const resetAnimationValues = useCallback(() => {
-    currentOpacity.value = 1;
-    currentTranslateX.value = 0;
-    currentScale.value = 1;
-    currentRotate.value = 0;
-    nextOpacity.value = 0;
-    nextTranslateX.value = 0;
-    nextScale.value = 1;
-    nextRotate.value = 0;
-  }, [currentOpacity, currentTranslateX, currentScale, currentRotate, nextOpacity, nextTranslateX, nextScale, nextRotate]);
+  const getLayerValues = useCallback((layer) => {
+    if (layer === 'A') {
+      return {
+        opacity: layerAOpacity,
+        translateX: layerATranslateX,
+        scale: layerAScale,
+        rotate: layerARotate,
+      };
+    }
+    return {
+      opacity: layerBOpacity,
+      translateX: layerBTranslateX,
+      scale: layerBScale,
+      rotate: layerBRotate,
+    };
+  }, [layerAOpacity, layerATranslateX, layerAScale, layerARotate, layerBOpacity, layerBTranslateX, layerBScale, layerBRotate]);
 
-  const onTransitionComplete = useCallback((newIndex) => {
+  const onTransitionComplete = useCallback((newActiveLayer, newIndex) => {
+    activeLayerRef.current = newActiveLayer;
+    setActiveLayer(newActiveLayer);
     setCurrentIndex(newIndex);
     setIsTransitioning(false);
-    setShowNext(false);
-    setNextIndex(null);
-    resetAnimationValues();
-  }, [resetAnimationValues]);
+
+    const oldLayer = newActiveLayer === 'A' ? 'B' : 'A';
+    const old = getLayerValues(oldLayer);
+    old.opacity.value = 0;
+    old.translateX.value = 0;
+    old.scale.value = 1;
+    old.rotate.value = 0;
+  }, [getLayerValues]);
+
+  // Store SCREEN_W in a ref so the setTimeout closure gets the latest value
+  const screenWRef = useRef(SCREEN_W);
+  screenWRef.current = SCREEN_W;
 
   const performTransition = useCallback((newIndex) => {
     if (isTransitioning) return;
     setIsTransitioning(true);
-    setNextIndex(newIndex);
-    setShowNext(true);
+
+    const currentLayer = activeLayerRef.current;
+    const nextLayer = currentLayer === 'A' ? 'B' : 'A';
+
+    if (nextLayer === 'A') {
+      setLayerAIndex(newIndex);
+    } else {
+      setLayerBIndex(newIndex);
+    }
+
+    const cur = getLayerValues(currentLayer);
+    const nxt = getLayerValues(nextLayer);
+
+    nxt.opacity.value = 0;
+    nxt.translateX.value = 0;
+    nxt.scale.value = 1;
+    nxt.rotate.value = 0;
 
     const timingConfig = { duration: TRANSITION_DURATION, easing: Easing.bezier(0.4, 0, 0.2, 1) };
 
     const done = (finished) => {
       'worklet';
       if (finished) {
-        runOnJS(onTransitionComplete)(newIndex);
+        runOnJS(onTransitionComplete)(nextLayer, newIndex);
       }
     };
 
-    switch (transition) {
-      case 'fade':
-        currentOpacity.value = withTiming(0, timingConfig);
-        nextOpacity.value = withTiming(1, timingConfig, done);
-        break;
+    setTimeout(() => {
+      const W = screenWRef.current;
 
-      case 'slide-left':
-        currentTranslateX.value = withTiming(-SCREEN_W, timingConfig);
-        nextTranslateX.value = SCREEN_W;
-        nextOpacity.value = 1;
-        nextTranslateX.value = withTiming(0, timingConfig, done);
-        break;
+      switch (transition) {
+        case 'fade':
+          cur.opacity.value = withTiming(0, timingConfig);
+          nxt.opacity.value = withTiming(1, timingConfig, done);
+          break;
 
-      case 'slide-right':
-        currentTranslateX.value = withTiming(SCREEN_W, timingConfig);
-        nextTranslateX.value = -SCREEN_W;
-        nextOpacity.value = 1;
-        nextTranslateX.value = withTiming(0, timingConfig, done);
-        break;
+        case 'slide-left':
+          cur.translateX.value = withTiming(-W, timingConfig);
+          nxt.translateX.value = W;
+          nxt.opacity.value = 1;
+          nxt.translateX.value = withTiming(0, timingConfig, done);
+          break;
 
-      case 'zoom-in':
-        currentScale.value = withTiming(1.5, timingConfig);
-        currentOpacity.value = withTiming(0, timingConfig);
-        nextScale.value = 0.5;
-        nextOpacity.value = withTiming(1, timingConfig);
-        nextScale.value = withTiming(1, timingConfig, done);
-        break;
+        case 'slide-right':
+          cur.translateX.value = withTiming(W, timingConfig);
+          nxt.translateX.value = -W;
+          nxt.opacity.value = 1;
+          nxt.translateX.value = withTiming(0, timingConfig, done);
+          break;
 
-      case 'zoom-out':
-        currentScale.value = withTiming(0.5, timingConfig);
-        currentOpacity.value = withTiming(0, timingConfig);
-        nextOpacity.value = withTiming(1, timingConfig);
-        nextScale.value = withTiming(1, timingConfig, done);
-        break;
+        case 'zoom-in':
+          cur.scale.value = withTiming(1.5, timingConfig);
+          cur.opacity.value = withTiming(0, timingConfig);
+          nxt.scale.value = 0.5;
+          nxt.opacity.value = withTiming(1, timingConfig);
+          nxt.scale.value = withTiming(1, timingConfig, done);
+          break;
 
-      case 'flip':
-        currentScale.value = withTiming(0.8, { duration: TRANSITION_DURATION / 2, easing: Easing.in(Easing.ease) });
-        currentOpacity.value = withTiming(0, { duration: TRANSITION_DURATION / 2 }, (finished) => {
-          'worklet';
-          if (finished) {
-            nextOpacity.value = withTiming(1, { duration: TRANSITION_DURATION / 2, easing: Easing.out(Easing.ease) });
-            nextScale.value = 0.8;
-            nextScale.value = withTiming(1, { duration: TRANSITION_DURATION / 2 }, done);
-          }
-        });
-        break;
+        case 'zoom-out':
+          cur.scale.value = withTiming(0.5, timingConfig);
+          cur.opacity.value = withTiming(0, timingConfig);
+          nxt.opacity.value = withTiming(1, timingConfig);
+          nxt.scale.value = withTiming(1, timingConfig, done);
+          break;
 
-      case 'dissolve':
-        currentOpacity.value = withTiming(0, { duration: TRANSITION_DURATION * 1.2, easing: Easing.linear });
-        nextOpacity.value = withTiming(1, { duration: TRANSITION_DURATION * 1.2, easing: Easing.linear }, done);
-        break;
+        case 'flip':
+          cur.scale.value = withTiming(0.8, { duration: TRANSITION_DURATION / 2, easing: Easing.in(Easing.ease) });
+          cur.opacity.value = withTiming(0, { duration: TRANSITION_DURATION / 2 }, (finished) => {
+            'worklet';
+            if (finished) {
+              nxt.opacity.value = withTiming(1, { duration: TRANSITION_DURATION / 2, easing: Easing.out(Easing.ease) });
+              nxt.scale.value = 0.8;
+              nxt.scale.value = withTiming(1, { duration: TRANSITION_DURATION / 2 }, done);
+            }
+          });
+          break;
 
-      case 'kenburns':
-        currentOpacity.value = withTiming(0, { duration: TRANSITION_DURATION * 1.5 });
-        currentScale.value = withTiming(1.2, { duration: TRANSITION_DURATION * 1.5 });
-        nextOpacity.value = withTiming(1, { duration: TRANSITION_DURATION * 1.5 });
-        nextScale.value = 1.1;
-        nextScale.value = withTiming(1, { duration: TRANSITION_DURATION * 1.5 }, done);
-        break;
+        case 'dissolve':
+          cur.opacity.value = withTiming(0, { duration: TRANSITION_DURATION * 1.2, easing: Easing.linear });
+          nxt.opacity.value = withTiming(1, { duration: TRANSITION_DURATION * 1.2, easing: Easing.linear }, done);
+          break;
 
-      case 'blur':
-        currentScale.value = withTiming(1.1, timingConfig);
-        currentOpacity.value = withTiming(0, timingConfig);
-        nextScale.value = 1.1;
-        nextOpacity.value = withTiming(1, timingConfig);
-        nextScale.value = withTiming(1, timingConfig, done);
-        break;
+        case 'kenburns':
+          cur.opacity.value = withTiming(0, { duration: TRANSITION_DURATION * 1.5 });
+          cur.scale.value = withTiming(1.2, { duration: TRANSITION_DURATION * 1.5 });
+          nxt.opacity.value = withTiming(1, { duration: TRANSITION_DURATION * 1.5 });
+          nxt.scale.value = 1.1;
+          nxt.scale.value = withTiming(1, { duration: TRANSITION_DURATION * 1.5 }, done);
+          break;
 
-      case 'rotate':
-        currentRotate.value = withTiming(10, timingConfig);
-        currentScale.value = withTiming(0.8, timingConfig);
-        currentOpacity.value = withTiming(0, timingConfig);
-        nextRotate.value = -10;
-        nextScale.value = 0.8;
-        nextOpacity.value = withTiming(1, timingConfig);
-        nextRotate.value = withTiming(0, timingConfig);
-        nextScale.value = withTiming(1, timingConfig, done);
-        break;
+        case 'blur':
+          cur.scale.value = withTiming(1.1, timingConfig);
+          cur.opacity.value = withTiming(0, timingConfig);
+          nxt.scale.value = 1.1;
+          nxt.opacity.value = withTiming(1, timingConfig);
+          nxt.scale.value = withTiming(1, timingConfig, done);
+          break;
 
-      default:
-        currentOpacity.value = withTiming(0, timingConfig);
-        nextOpacity.value = withTiming(1, timingConfig, done);
-    }
-  }, [transition, isTransitioning, onTransitionComplete, currentOpacity, currentTranslateX, currentScale, currentRotate, nextOpacity, nextTranslateX, nextScale, nextRotate]);
+        case 'rotate':
+          cur.rotate.value = withTiming(10, timingConfig);
+          cur.scale.value = withTiming(0.8, timingConfig);
+          cur.opacity.value = withTiming(0, timingConfig);
+          nxt.rotate.value = -10;
+          nxt.scale.value = 0.8;
+          nxt.opacity.value = withTiming(1, timingConfig);
+          nxt.rotate.value = withTiming(0, timingConfig);
+          nxt.scale.value = withTiming(1, timingConfig, done);
+          break;
+
+        default:
+          cur.opacity.value = withTiming(0, timingConfig);
+          nxt.opacity.value = withTiming(1, timingConfig, done);
+      }
+    }, 50);
+  }, [transition, isTransitioning, onTransitionComplete, getLayerValues]);
 
   const goToNext = useCallback(() => {
     if (assets.length <= 1) return;
@@ -210,22 +255,23 @@ export default function SlideshowScreen({ route, navigation }) {
     if (!showSettings) setShowControls((v) => !v);
   };
 
-  // Animated styles
-  const currentAnimStyle = useAnimatedStyle(() => ({
-    opacity: currentOpacity.value,
+  // Animated styles for layer A
+  const layerAAnimStyle = useAnimatedStyle(() => ({
+    opacity: layerAOpacity.value,
     transform: [
-      { translateX: currentTranslateX.value },
-      { scale: currentScale.value },
-      { rotate: `${currentRotate.value}deg` },
+      { translateX: layerATranslateX.value },
+      { scale: layerAScale.value },
+      { rotate: `${layerARotate.value}deg` },
     ],
   }));
 
-  const nextAnimStyle = useAnimatedStyle(() => ({
-    opacity: nextOpacity.value,
+  // Animated styles for layer B
+  const layerBAnimStyle = useAnimatedStyle(() => ({
+    opacity: layerBOpacity.value,
     transform: [
-      { translateX: nextTranslateX.value },
-      { scale: nextScale.value },
-      { rotate: `${nextRotate.value}deg` },
+      { translateX: layerBTranslateX.value },
+      { scale: layerBScale.value },
+      { rotate: `${layerBRotate.value}deg` },
     ],
   }));
 
@@ -233,32 +279,34 @@ export default function SlideshowScreen({ route, navigation }) {
     width: `${progressWidth.value * 100}%`,
   }));
 
+  const layerAAsset = assets[layerAIndex];
+  const layerBAsset = assets[layerBIndex];
   const currentAsset = assets[currentIndex];
-  const nextAsset = nextIndex !== null ? assets[nextIndex] : null;
+
+  const layerAZIndex = activeLayer === 'A' ? 1 : 2;
+  const layerBZIndex = activeLayer === 'B' ? 1 : 2;
 
   return (
     <View style={styles.container}>
       <StatusBar hidden />
 
-      {/* Current image */}
-      <Animated.View style={[styles.imageWrapper, currentAnimStyle]}>
+      {/* Layer A - always rendered */}
+      <Animated.View style={[styles.imageWrapper, { zIndex: layerAZIndex }, layerAAnimStyle]}>
         <Image
-          source={{ uri: currentAsset.uri }}
-          style={styles.image}
+          source={{ uri: layerAAsset.uri }}
+          style={{ width: SCREEN_W, height: SCREEN_H }}
           contentFit="contain"
         />
       </Animated.View>
 
-      {/* Next image (during transition) */}
-      {showNext && nextAsset && (
-        <Animated.View style={[styles.imageWrapper, styles.nextImage, nextAnimStyle]}>
-          <Image
-            source={{ uri: nextAsset.uri }}
-            style={styles.image}
-            contentFit="contain"
-          />
-        </Animated.View>
-      )}
+      {/* Layer B - always rendered */}
+      <Animated.View style={[styles.imageWrapper, { zIndex: layerBZIndex }, layerBAnimStyle]}>
+        <Image
+          source={{ uri: layerBAsset.uri }}
+          style={{ width: SCREEN_W, height: SCREEN_H }}
+          contentFit="contain"
+        />
+      </Animated.View>
 
       {/* Progress bar */}
       <View style={styles.progressTrack}>
@@ -266,7 +314,7 @@ export default function SlideshowScreen({ route, navigation }) {
       </View>
 
       {/* Touch area for toggling controls */}
-      <Pressable style={StyleSheet.absoluteFill} onPress={toggleControls} />
+      <Pressable style={[StyleSheet.absoluteFill, { zIndex: 3 }]} onPress={toggleControls} />
 
       {/* Controls */}
       {showControls && (
@@ -308,7 +356,7 @@ export default function SlideshowScreen({ route, navigation }) {
       {/* Settings modal */}
       {showSettings && (
         <Pressable style={styles.settingsOverlay} onPress={() => setShowSettings(false)}>
-          <Pressable style={styles.settingsPanel} onPress={(e) => e.stopPropagation()}>
+          <Pressable style={[styles.settingsPanel, { width: SCREEN_W * 0.85, maxHeight: SCREEN_H * 0.75 }]} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.settingsTitle}>슬라이드쇼 설정</Text>
 
             <Text style={styles.sectionLabel}>전환 효과</Text>
@@ -360,13 +408,6 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  nextImage: {
-    zIndex: 2,
-  },
-  image: {
-    width: SCREEN_W,
-    height: SCREEN_H,
   },
   progressTrack: {
     position: 'absolute',
@@ -461,8 +502,6 @@ const styles = StyleSheet.create({
     zIndex: 20,
   },
   settingsPanel: {
-    width: SCREEN_W * 0.85,
-    maxHeight: SCREEN_H * 0.75,
     backgroundColor: '#1e1e1e',
     borderRadius: 20,
     padding: 24,
