@@ -7,6 +7,7 @@ import AlbumsScreen from './src/screens/AlbumsScreen';
 import GalleryScreen from './src/screens/GalleryScreen';
 import SlideshowScreen from './src/screens/SlideshowScreen';
 import SelectionScreen from './src/screens/SelectionScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -57,6 +58,11 @@ export default function App() {
             name="Selection"
             component={SelectionScreen}
             options={{ title: '슬라이드쇼 사진 관리' }}
+          />
+          <Stack.Screen
+            name="Settings"
+            component={SettingsScreen}
+            options={{ title: '설정' }}
           />
         </Stack.Navigator>
       </NavigationContainer>

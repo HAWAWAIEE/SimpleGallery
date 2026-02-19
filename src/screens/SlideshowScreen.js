@@ -7,6 +7,8 @@ import {
   StatusBar,
   Pressable,
   useWindowDimensions,
+  ScrollView,
+  Switch,
 } from 'react-native';
 import { Image } from 'expo-image';
 import Animated, {
@@ -17,8 +19,9 @@ import Animated, {
   runOnJS,
   cancelAnimation,
 } from 'react-native-reanimated';
-import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
-import { TRANSITIONS, SPEED_OPTIONS } from '../utils/transitions';
+import { useKeepAwake } from 'expo-keep-awake';
+import { TRANSITIONS, SPEED_OPTIONS, getRandomTransitionId } from '../utils/transitions';
+import { getSlideshowSettings } from '../storage/settings';
 
 const TRANSITION_DURATION = 800;
 
@@ -33,13 +36,29 @@ export default function SlideshowScreen({ route, navigation }) {
   const { assets } = route.params;
   const { width: SCREEN_W, height: SCREEN_H } = useWindowDimensions();
 
+  // Keep screen awake while slideshow is mounted
+  useKeepAwake();
+
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
   const [showControls, setShowControls] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [transition, setTransition] = useState('fade');
   const [speed, setSpeed] = useState(4000);
+  const [showProgressBar, setShowProgressBar] = useState(true);
   const [isTransitioning, setIsTransitioning] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+
+  // Load default settings from app preferences
+  useEffect(() => {
+    (async () => {
+      const defaults = await getSlideshowSettings();
+      setTransition(defaults.transition);
+      setSpeed(defaults.speed);
+      setShowProgressBar(defaults.showProgressBar);
+      setSettingsLoaded(true);
+    })();
+  }, []);
 
   // Double-buffer: two layers with their own image index
   const [layerAIndex, setLayerAIndex] = useState(0);
@@ -49,6 +68,10 @@ export default function SlideshowScreen({ route, navigation }) {
 
   const timerRef = useRef(null);
   const controlsTimerRef = useRef(null);
+
+  // Keep transition in a ref so the setTimeout closure always sees the latest value
+  const transitionRef = useRef(transition);
+  transitionRef.current = transition;
 
   // Animation shared values - Layer A
   const layerAOpacity = useSharedValue(1);
@@ -100,6 +123,92 @@ export default function SlideshowScreen({ route, navigation }) {
   const screenWRef = useRef(SCREEN_W);
   screenWRef.current = SCREEN_W;
 
+  const applyTransitionEffect = useCallback((effectId, cur, nxt, W, timingConfig, done) => {
+    switch (effectId) {
+      case 'fade':
+        cur.opacity.value = withTiming(0, timingConfig);
+        nxt.opacity.value = withTiming(1, timingConfig, done);
+        break;
+
+      case 'slide-left':
+        cur.translateX.value = withTiming(-W, timingConfig);
+        nxt.translateX.value = W;
+        nxt.opacity.value = 1;
+        nxt.translateX.value = withTiming(0, timingConfig, done);
+        break;
+
+      case 'slide-right':
+        cur.translateX.value = withTiming(W, timingConfig);
+        nxt.translateX.value = -W;
+        nxt.opacity.value = 1;
+        nxt.translateX.value = withTiming(0, timingConfig, done);
+        break;
+
+      case 'zoom-in':
+        cur.scale.value = withTiming(1.5, timingConfig);
+        cur.opacity.value = withTiming(0, timingConfig);
+        nxt.scale.value = 0.5;
+        nxt.opacity.value = withTiming(1, timingConfig);
+        nxt.scale.value = withTiming(1, timingConfig, done);
+        break;
+
+      case 'zoom-out':
+        cur.scale.value = withTiming(0.5, timingConfig);
+        cur.opacity.value = withTiming(0, timingConfig);
+        nxt.opacity.value = withTiming(1, timingConfig);
+        nxt.scale.value = withTiming(1, timingConfig, done);
+        break;
+
+      case 'flip':
+        cur.scale.value = withTiming(0.8, { duration: TRANSITION_DURATION / 2, easing: Easing.in(Easing.ease) });
+        cur.opacity.value = withTiming(0, { duration: TRANSITION_DURATION / 2 }, (finished) => {
+          'worklet';
+          if (finished) {
+            nxt.opacity.value = withTiming(1, { duration: TRANSITION_DURATION / 2, easing: Easing.out(Easing.ease) });
+            nxt.scale.value = 0.8;
+            nxt.scale.value = withTiming(1, { duration: TRANSITION_DURATION / 2 }, done);
+          }
+        });
+        break;
+
+      case 'dissolve':
+        cur.opacity.value = withTiming(0, { duration: TRANSITION_DURATION * 1.2, easing: Easing.linear });
+        nxt.opacity.value = withTiming(1, { duration: TRANSITION_DURATION * 1.2, easing: Easing.linear }, done);
+        break;
+
+      case 'kenburns':
+        cur.opacity.value = withTiming(0, { duration: TRANSITION_DURATION * 1.5 });
+        cur.scale.value = withTiming(1.2, { duration: TRANSITION_DURATION * 1.5 });
+        nxt.opacity.value = withTiming(1, { duration: TRANSITION_DURATION * 1.5 });
+        nxt.scale.value = 1.1;
+        nxt.scale.value = withTiming(1, { duration: TRANSITION_DURATION * 1.5 }, done);
+        break;
+
+      case 'blur':
+        cur.scale.value = withTiming(1.1, timingConfig);
+        cur.opacity.value = withTiming(0, timingConfig);
+        nxt.scale.value = 1.1;
+        nxt.opacity.value = withTiming(1, timingConfig);
+        nxt.scale.value = withTiming(1, timingConfig, done);
+        break;
+
+      case 'rotate':
+        cur.rotate.value = withTiming(10, timingConfig);
+        cur.scale.value = withTiming(0.8, timingConfig);
+        cur.opacity.value = withTiming(0, timingConfig);
+        nxt.rotate.value = -10;
+        nxt.scale.value = 0.8;
+        nxt.opacity.value = withTiming(1, timingConfig);
+        nxt.rotate.value = withTiming(0, timingConfig);
+        nxt.scale.value = withTiming(1, timingConfig, done);
+        break;
+
+      default:
+        cur.opacity.value = withTiming(0, timingConfig);
+        nxt.opacity.value = withTiming(1, timingConfig, done);
+    }
+  }, []);
+
   const performTransition = useCallback((newIndex) => {
     if (isTransitioning) return;
     setIsTransitioning(true);
@@ -132,92 +241,11 @@ export default function SlideshowScreen({ route, navigation }) {
 
     setTimeout(() => {
       const W = screenWRef.current;
-
-      switch (transition) {
-        case 'fade':
-          cur.opacity.value = withTiming(0, timingConfig);
-          nxt.opacity.value = withTiming(1, timingConfig, done);
-          break;
-
-        case 'slide-left':
-          cur.translateX.value = withTiming(-W, timingConfig);
-          nxt.translateX.value = W;
-          nxt.opacity.value = 1;
-          nxt.translateX.value = withTiming(0, timingConfig, done);
-          break;
-
-        case 'slide-right':
-          cur.translateX.value = withTiming(W, timingConfig);
-          nxt.translateX.value = -W;
-          nxt.opacity.value = 1;
-          nxt.translateX.value = withTiming(0, timingConfig, done);
-          break;
-
-        case 'zoom-in':
-          cur.scale.value = withTiming(1.5, timingConfig);
-          cur.opacity.value = withTiming(0, timingConfig);
-          nxt.scale.value = 0.5;
-          nxt.opacity.value = withTiming(1, timingConfig);
-          nxt.scale.value = withTiming(1, timingConfig, done);
-          break;
-
-        case 'zoom-out':
-          cur.scale.value = withTiming(0.5, timingConfig);
-          cur.opacity.value = withTiming(0, timingConfig);
-          nxt.opacity.value = withTiming(1, timingConfig);
-          nxt.scale.value = withTiming(1, timingConfig, done);
-          break;
-
-        case 'flip':
-          cur.scale.value = withTiming(0.8, { duration: TRANSITION_DURATION / 2, easing: Easing.in(Easing.ease) });
-          cur.opacity.value = withTiming(0, { duration: TRANSITION_DURATION / 2 }, (finished) => {
-            'worklet';
-            if (finished) {
-              nxt.opacity.value = withTiming(1, { duration: TRANSITION_DURATION / 2, easing: Easing.out(Easing.ease) });
-              nxt.scale.value = 0.8;
-              nxt.scale.value = withTiming(1, { duration: TRANSITION_DURATION / 2 }, done);
-            }
-          });
-          break;
-
-        case 'dissolve':
-          cur.opacity.value = withTiming(0, { duration: TRANSITION_DURATION * 1.2, easing: Easing.linear });
-          nxt.opacity.value = withTiming(1, { duration: TRANSITION_DURATION * 1.2, easing: Easing.linear }, done);
-          break;
-
-        case 'kenburns':
-          cur.opacity.value = withTiming(0, { duration: TRANSITION_DURATION * 1.5 });
-          cur.scale.value = withTiming(1.2, { duration: TRANSITION_DURATION * 1.5 });
-          nxt.opacity.value = withTiming(1, { duration: TRANSITION_DURATION * 1.5 });
-          nxt.scale.value = 1.1;
-          nxt.scale.value = withTiming(1, { duration: TRANSITION_DURATION * 1.5 }, done);
-          break;
-
-        case 'blur':
-          cur.scale.value = withTiming(1.1, timingConfig);
-          cur.opacity.value = withTiming(0, timingConfig);
-          nxt.scale.value = 1.1;
-          nxt.opacity.value = withTiming(1, timingConfig);
-          nxt.scale.value = withTiming(1, timingConfig, done);
-          break;
-
-        case 'rotate':
-          cur.rotate.value = withTiming(10, timingConfig);
-          cur.scale.value = withTiming(0.8, timingConfig);
-          cur.opacity.value = withTiming(0, timingConfig);
-          nxt.rotate.value = -10;
-          nxt.scale.value = 0.8;
-          nxt.opacity.value = withTiming(1, timingConfig);
-          nxt.rotate.value = withTiming(0, timingConfig);
-          nxt.scale.value = withTiming(1, timingConfig, done);
-          break;
-
-        default:
-          cur.opacity.value = withTiming(0, timingConfig);
-          nxt.opacity.value = withTiming(1, timingConfig, done);
-      }
+      const currentTransition = transitionRef.current;
+      const effectId = currentTransition === 'random' ? getRandomTransitionId() : currentTransition;
+      applyTransitionEffect(effectId, cur, nxt, W, timingConfig, done);
     }, 50);
-  }, [transition, isTransitioning, onTransitionComplete, getLayerValues]);
+  }, [isTransitioning, onTransitionComplete, getLayerValues, applyTransitionEffect]);
 
   const goToNext = useCallback(() => {
     if (assets.length <= 1) return;
@@ -231,18 +259,9 @@ export default function SlideshowScreen({ route, navigation }) {
     performTransition(prev);
   }, [currentIndex, assets.length, performTransition]);
 
-  // Keep screen awake while slideshow is playing
-  useEffect(() => {
-    if (isPlaying) {
-      activateKeepAwakeAsync('slideshow');
-    } else {
-      deactivateKeepAwake('slideshow');
-    }
-    return () => deactivateKeepAwake('slideshow');
-  }, [isPlaying]);
-
   // Auto advance
   useEffect(() => {
+    if (!settingsLoaded) return;
     if (isPlaying && !isTransitioning) {
       progressWidth.value = 0;
       progressWidth.value = withTiming(1, { duration: speed, easing: Easing.linear });
@@ -252,7 +271,7 @@ export default function SlideshowScreen({ route, navigation }) {
       clearTimeout(timerRef.current);
       cancelAnimation(progressWidth);
     };
-  }, [isPlaying, currentIndex, speed, isTransitioning, goToNext, progressWidth]);
+  }, [isPlaying, currentIndex, speed, isTransitioning, goToNext, progressWidth, settingsLoaded]);
 
   // Auto-hide controls
   useEffect(() => {
@@ -320,9 +339,11 @@ export default function SlideshowScreen({ route, navigation }) {
       </Animated.View>
 
       {/* Progress bar */}
-      <View style={styles.progressTrack}>
-        <Animated.View style={[styles.progressBar, progressBarStyle]} />
-      </View>
+      {showProgressBar && (
+        <View style={styles.progressTrack}>
+          <Animated.View style={[styles.progressBar, progressBarStyle]} />
+        </View>
+      )}
 
       {/* Touch area for toggling controls */}
       <Pressable style={[StyleSheet.absoluteFill, { zIndex: 3 }]} onPress={toggleControls} />
@@ -367,42 +388,55 @@ export default function SlideshowScreen({ route, navigation }) {
       {/* Settings modal */}
       {showSettings && (
         <Pressable style={styles.settingsOverlay} onPress={() => setShowSettings(false)}>
-          <Pressable style={[styles.settingsPanel, { width: SCREEN_W * 0.85, maxHeight: SCREEN_H * 0.75 }]} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.settingsTitle}>슬라이드쇼 설정</Text>
+          <Pressable style={[styles.settingsPanel, { width: SCREEN_W * 0.85, maxHeight: SCREEN_H * 0.8 }]} onPress={(e) => e.stopPropagation()}>
+            <ScrollView showsVerticalScrollIndicator={true} bounces={false}>
+              <Text style={styles.settingsTitle}>슬라이드쇼 설정</Text>
 
-            <Text style={styles.sectionLabel}>전환 효과</Text>
-            <View style={styles.transitionGrid}>
-              {TRANSITIONS.map((t) => (
-                <TouchableOpacity
-                  key={t.id}
-                  style={[styles.optionBtn, transition === t.id && styles.optionActive]}
-                  onPress={() => setTransition(t.id)}
-                >
-                  <Text style={[styles.optionText, transition === t.id && styles.optionTextActive]}>
-                    {t.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+              <Text style={styles.sectionLabel}>전환 효과</Text>
+              <View style={styles.transitionGrid}>
+                {TRANSITIONS.map((t) => (
+                  <TouchableOpacity
+                    key={t.id}
+                    style={[styles.optionBtn, transition === t.id && styles.optionActive]}
+                    onPress={() => setTransition(t.id)}
+                  >
+                    <Text style={[styles.optionText, transition === t.id && styles.optionTextActive]}>
+                      {t.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
 
-            <Text style={styles.sectionLabel}>표시 시간</Text>
-            <View style={styles.speedList}>
-              {SPEED_OPTIONS.map((s) => (
-                <TouchableOpacity
-                  key={s.value}
-                  style={[styles.speedBtn, speed === s.value && styles.optionActive]}
-                  onPress={() => setSpeed(s.value)}
-                >
-                  <Text style={[styles.optionText, speed === s.value && styles.optionTextActive]}>
-                    {s.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+              <Text style={styles.sectionLabel}>표시 시간</Text>
+              <View style={styles.speedList}>
+                {SPEED_OPTIONS.map((s) => (
+                  <TouchableOpacity
+                    key={s.value}
+                    style={[styles.speedBtn, speed === s.value && styles.optionActive]}
+                    onPress={() => setSpeed(s.value)}
+                  >
+                    <Text style={[styles.optionText, speed === s.value && styles.optionTextActive]}>
+                      {s.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
 
-            <TouchableOpacity style={styles.closeSettingsBtn} onPress={() => setShowSettings(false)}>
-              <Text style={styles.closeSettingsText}>닫기</Text>
-            </TouchableOpacity>
+              <Text style={styles.sectionLabel}>진행 바</Text>
+              <View style={styles.switchRow}>
+                <Text style={styles.switchLabel}>진행 바 표시</Text>
+                <Switch
+                  value={showProgressBar}
+                  onValueChange={setShowProgressBar}
+                  trackColor={{ false: '#555', true: '#4da6ff' }}
+                  thumbColor="#fff"
+                />
+              </View>
+
+              <TouchableOpacity style={styles.closeSettingsBtn} onPress={() => setShowSettings(false)}>
+                <Text style={styles.closeSettingsText}>닫기</Text>
+              </TouchableOpacity>
+            </ScrollView>
           </Pressable>
         </Pressable>
       )}
@@ -560,7 +594,7 @@ const styles = StyleSheet.create({
   },
   speedList: {
     gap: 6,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   speedBtn: {
     paddingHorizontal: 14,
@@ -569,6 +603,19 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.12)',
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderRadius: 8,
+  },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 16,
+  },
+  switchLabel: {
+    color: '#fff',
+    fontSize: 14,
   },
   closeSettingsBtn: {
     paddingVertical: 12,

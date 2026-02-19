@@ -9,7 +9,13 @@ export const TRANSITIONS = [
   { id: 'kenburns', name: '켄 번즈' },
   { id: 'blur', name: '블러 페이드' },
   { id: 'rotate', name: '회전' },
+  { id: 'random', name: '랜덤' },
 ];
+
+export function getRandomTransitionId() {
+  const ids = TRANSITIONS.filter((t) => t.id !== 'random').map((t) => t.id);
+  return ids[Math.floor(Math.random() * ids.length)];
+}
 
 export const SPEED_OPTIONS = [
   { value: 2000, label: '빠름 (2초)' },
