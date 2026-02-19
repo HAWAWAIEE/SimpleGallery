@@ -17,6 +17,7 @@ import Animated, {
   runOnJS,
   cancelAnimation,
 } from 'react-native-reanimated';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { TRANSITIONS, SPEED_OPTIONS } from '../utils/transitions';
 
 const TRANSITION_DURATION = 800;
@@ -229,6 +230,16 @@ export default function SlideshowScreen({ route, navigation }) {
     const prev = (currentIndex - 1 + assets.length) % assets.length;
     performTransition(prev);
   }, [currentIndex, assets.length, performTransition]);
+
+  // Keep screen awake while slideshow is playing
+  useEffect(() => {
+    if (isPlaying) {
+      activateKeepAwakeAsync('slideshow');
+    } else {
+      deactivateKeepAwake('slideshow');
+    }
+    return () => deactivateKeepAwake('slideshow');
+  }, [isPlaying]);
 
   // Auto advance
   useEffect(() => {
