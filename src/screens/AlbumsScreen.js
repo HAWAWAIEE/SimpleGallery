@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useLayoutEffect } from 'react';
 import {
   View,
   Text,
@@ -86,6 +86,20 @@ export default function AlbumsScreen({ navigation }) {
       }
     })();
   }, [requestPermission, loadAlbums]);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity
+          onPress={() => navigation.navigate('Settings')}
+          style={styles.settingsBtn}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Text style={styles.settingsIcon}>⚙</Text>
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation]);
 
   const handleAlbumPress = (album) => {
     navigation.navigate('Gallery', {
@@ -233,5 +247,12 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
+  },
+  settingsBtn: {
+    paddingHorizontal: 12,
+  },
+  settingsIcon: {
+    color: '#fff',
+    fontSize: 22,
   },
 });
