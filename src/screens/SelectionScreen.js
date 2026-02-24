@@ -28,6 +28,8 @@ export default function SelectionScreen({ route, navigation }) {
   const [endCursor, setEndCursor] = useState(null);
   const [hasNextPage, setHasNextPage] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [totalCount, setTotalCount] = useState(0);
+  const [loadingAll, setLoadingAll] = useState(false);
 
   const PAGE_SIZE = 100;
 
@@ -49,6 +51,7 @@ export default function SelectionScreen({ route, navigation }) {
       setAssets(result.assets);
       setEndCursor(result.endCursor);
       setHasNextPage(result.hasNextPage);
+      setTotalCount(result.totalCount);
 
       const sels = await getSelections(albumId);
       setSelectedIds(sels);
@@ -74,8 +77,32 @@ export default function SelectionScreen({ route, navigation }) {
     );
   };
 
-  const selectAll = () => {
-    setSelectedIds(assets.map((a) => a.id));
+  const loadAllRemainingAssets = async () => {
+    let all = [...assets];
+    let cursor = endCursor;
+    let more = hasNextPage;
+
+    while (more) {
+      const result = await loadAssets(cursor);
+      all = [...all, ...result.assets];
+      cursor = result.endCursor;
+      more = result.hasNextPage;
+    }
+
+    setAssets(all);
+    setEndCursor(null);
+    setHasNextPage(false);
+    return all;
+  };
+
+  const selectAll = async () => {
+    let allAssets = assets;
+    if (hasNextPage) {
+      setLoadingAll(true);
+      allAssets = await loadAllRemainingAssets();
+      setLoadingAll(false);
+    }
+    setSelectedIds(allAssets.map((a) => a.id));
   };
 
   const deselectAll = () => {
@@ -128,11 +155,11 @@ export default function SelectionScreen({ route, navigation }) {
       <View style={styles.toolbar}>
         <View style={styles.countContainer}>
           <Text style={styles.countNumber}>{selectedIds.length}</Text>
-          <Text style={styles.countLabel}> / {assets.length}장 선택</Text>
+          <Text style={styles.countLabel}> / {totalCount}장 선택</Text>
         </View>
         <View style={styles.toolbarActions}>
-          <TouchableOpacity style={styles.toolbarBtn} onPress={selectAll}>
-            <Text style={styles.toolbarBtnText}>전체 선택</Text>
+          <TouchableOpacity style={styles.toolbarBtn} onPress={selectAll} disabled={loadingAll}>
+            <Text style={styles.toolbarBtnText}>{loadingAll ? '로딩 중...' : '전체 선택'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.toolbarBtn} onPress={deselectAll}>
             <Text style={styles.toolbarBtnText}>전체 해제</Text>

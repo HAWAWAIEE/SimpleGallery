@@ -105,8 +105,10 @@ export default function GalleryScreen({ route, navigation }) {
 
     let slideshowAssets;
     if (useSelection) {
+      const freshSelections = await getSelections(albumId);
+      setSelectedIds(freshSelections);
       const allAssets = await loadAllAssets();
-      slideshowAssets = allAssets.filter((a) => selectedIds.includes(a.id));
+      slideshowAssets = allAssets.filter((a) => freshSelections.includes(a.id));
     } else {
       slideshowAssets = await loadAllAssets();
     }
