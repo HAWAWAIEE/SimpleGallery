@@ -11,6 +11,7 @@ import {
   Switch,
 } from 'react-native';
 import { Image } from 'expo-image';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -285,6 +286,35 @@ export default function SlideshowScreen({ route, navigation }) {
     if (!showSettings) setShowControls((v) => !v);
   };
 
+  const handleSwipeLeft = useCallback(() => {
+    setIsPlaying(false);
+    goToNext();
+  }, [goToNext]);
+
+  const handleSwipeRight = useCallback(() => {
+    setIsPlaying(false);
+    goToPrev();
+  }, [goToPrev]);
+
+  const swipeGesture = Gesture.Pan()
+    .activeOffsetX([-20, 20])
+    .onEnd((e) => {
+      'worklet';
+      if (e.translationX < -50 || e.velocityX < -500) {
+        runOnJS(handleSwipeLeft)();
+      } else if (e.translationX > 50 || e.velocityX > 500) {
+        runOnJS(handleSwipeRight)();
+      }
+    });
+
+  const tapGesture = Gesture.Tap()
+    .onEnd(() => {
+      'worklet';
+      runOnJS(toggleControls)();
+    });
+
+  const composedGesture = Gesture.Race(swipeGesture, tapGesture);
+
   // Animated styles for layer A
   const layerAAnimStyle = useAnimatedStyle(() => ({
     opacity: layerAOpacity.value,
@@ -345,8 +375,10 @@ export default function SlideshowScreen({ route, navigation }) {
         </View>
       )}
 
-      {/* Touch area for toggling controls */}
-      <Pressable style={[StyleSheet.absoluteFill, { zIndex: 3 }]} onPress={toggleControls} />
+      {/* Touch area for toggling controls + swipe navigation */}
+      <GestureDetector gesture={composedGesture}>
+        <Animated.View style={[StyleSheet.absoluteFill, { zIndex: 3 }]} collapsable={false} />
+      </GestureDetector>
 
       {/* Controls */}
       {showControls && (

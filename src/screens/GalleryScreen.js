@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import * as MediaLibrary from 'expo-media-library';
 import { Image } from 'expo-image';
+import { GestureHandlerRootView, Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS } from 'react-native-reanimated';
 import { getSelections } from '../storage/selections';
 import { shuffleArray } from '../utils/transitions';
 
@@ -283,15 +285,69 @@ function MenuItem({ icon, title, subtitle, onPress, disabled }) {
 
 function ImageViewerModal({ assets, initialIndex, onClose }) {
   const [index, setIndex] = useState(initialIndex);
-  const asset = assets[index];
+  const { width } = useWindowDimensions();
+  const translateX = useSharedValue(0);
+  const activeIndex = useSharedValue(initialIndex);
+  const assetsLength = assets.length;
+
+  const goToIndex = useCallback((newIndex) => {
+    activeIndex.value = newIndex;
+    setIndex(newIndex);
+    translateX.value = 0;
+  }, [translateX, activeIndex]);
+
+  const panGesture = Gesture.Pan()
+    .activeOffsetX([-15, 15])
+    .onUpdate((e) => {
+      const atStart = activeIndex.value === 0 && e.translationX > 0;
+      const atEnd = activeIndex.value === assetsLength - 1 && e.translationX < 0;
+      translateX.value = (atStart || atEnd) ? e.translationX * 0.3 : e.translationX;
+    })
+    .onEnd((e) => {
+      const threshold = width * 0.25;
+      const shouldGoNext = (e.translationX < -threshold || e.velocityX < -500) && activeIndex.value < assetsLength - 1;
+      const shouldGoPrev = (e.translationX > threshold || e.velocityX > 500) && activeIndex.value > 0;
+
+      if (shouldGoNext) {
+        translateX.value = withTiming(-width, { duration: 250 }, (finished) => {
+          if (finished) runOnJS(goToIndex)(activeIndex.value + 1);
+        });
+      } else if (shouldGoPrev) {
+        translateX.value = withTiming(width, { duration: 250 }, (finished) => {
+          if (finished) runOnJS(goToIndex)(activeIndex.value - 1);
+        });
+      } else {
+        translateX.value = withTiming(0, { duration: 200 });
+      }
+    });
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
+
+  const prevAsset = index > 0 ? assets[index - 1] : null;
+  const currentAsset = assets[index];
+  const nextAsset = index < assets.length - 1 ? assets[index + 1] : null;
 
   return (
-    <View style={viewerStyles.container}>
-      <Image
-        source={{ uri: asset?.uri }}
-        style={viewerStyles.image}
-        contentFit="contain"
-      />
+    <GestureHandlerRootView style={viewerStyles.container}>
+      <GestureDetector gesture={panGesture}>
+        <Animated.View style={[viewerStyles.swipeContainer, animatedStyle]}>
+          {prevAsset && (
+            <View style={[StyleSheet.absoluteFill, { transform: [{ translateX: -width }] }]}>
+              <Image source={{ uri: prevAsset.uri }} style={viewerStyles.image} contentFit="contain" />
+            </View>
+          )}
+          <View style={StyleSheet.absoluteFill}>
+            <Image source={{ uri: currentAsset?.uri }} style={viewerStyles.image} contentFit="contain" />
+          </View>
+          {nextAsset && (
+            <View style={[StyleSheet.absoluteFill, { transform: [{ translateX: width }] }]}>
+              <Image source={{ uri: nextAsset.uri }} style={viewerStyles.image} contentFit="contain" />
+            </View>
+          )}
+        </Animated.View>
+      </GestureDetector>
       {/* Top bar */}
       <View style={viewerStyles.topBar}>
         <TouchableOpacity onPress={onClose} style={viewerStyles.closeBtn}>
@@ -299,28 +355,11 @@ function ImageViewerModal({ assets, initialIndex, onClose }) {
         </TouchableOpacity>
         <Text style={viewerStyles.counter}>{index + 1} / {assets.length}</Text>
       </View>
-      {/* Navigation */}
-      {index > 0 && (
-        <TouchableOpacity
-          style={[viewerStyles.navBtn, viewerStyles.prevBtn]}
-          onPress={() => setIndex(index - 1)}
-        >
-          <Text style={viewerStyles.navTxt}>‹</Text>
-        </TouchableOpacity>
-      )}
-      {index < assets.length - 1 && (
-        <TouchableOpacity
-          style={[viewerStyles.navBtn, viewerStyles.nextBtn]}
-          onPress={() => setIndex(index + 1)}
-        >
-          <Text style={viewerStyles.navTxt}>›</Text>
-        </TouchableOpacity>
-      )}
       {/* Filename */}
       <View style={viewerStyles.bottomBar}>
-        <Text style={viewerStyles.filename}>{asset?.filename}</Text>
+        <Text style={viewerStyles.filename}>{currentAsset?.filename}</Text>
       </View>
-    </View>
+    </GestureHandlerRootView>
   );
 }
 
@@ -390,6 +429,7 @@ const styles = StyleSheet.create({
 
 const viewerStyles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
+  swipeContainer: { flex: 1 },
   image: { flex: 1 },
   topBar: {
     position: 'absolute',
@@ -407,18 +447,6 @@ const viewerStyles = StyleSheet.create({
   closeBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   closeTxt: { color: '#fff', fontSize: 22 },
   counter: { color: 'rgba(255,255,255,0.7)', fontSize: 14 },
-  navBtn: {
-    position: 'absolute',
-    top: '45%',
-    width: 44,
-    height: 70,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.3)',
-  },
-  prevBtn: { left: 0, borderTopRightRadius: 8, borderBottomRightRadius: 8 },
-  nextBtn: { right: 0, borderTopLeftRadius: 8, borderBottomLeftRadius: 8 },
-  navTxt: { color: '#fff', fontSize: 32 },
   bottomBar: {
     position: 'absolute',
     bottom: 0,
