@@ -9,6 +9,7 @@ import {
   useWindowDimensions,
   ScrollView,
   Switch,
+  AppState,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -67,9 +68,20 @@ export default function SlideshowScreen({ route, navigation }) {
     })();
   }, []);
 
-  // Restore default orientation on unmount
+  // Re-apply orientation lock when returning from background
+  const isLandscapeLockedRef = useRef(isLandscapeLocked);
   useEffect(() => {
+    isLandscapeLockedRef.current = isLandscapeLocked;
+  }, [isLandscapeLocked]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && isLandscapeLockedRef.current) {
+        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+      }
+    });
     return () => {
+      subscription.remove();
       ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.DEFAULT);
     };
   }, []);
