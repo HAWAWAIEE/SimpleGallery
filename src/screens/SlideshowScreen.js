@@ -21,6 +21,7 @@ import Animated, {
   cancelAnimation,
 } from 'react-native-reanimated';
 import { useKeepAwake } from 'expo-keep-awake';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { TRANSITIONS, SPEED_OPTIONS, getRandomTransitionId } from '../utils/transitions';
 import { getSlideshowSettings } from '../storage/settings';
 
@@ -49,6 +50,7 @@ export default function SlideshowScreen({ route, navigation }) {
   const [showProgressBar, setShowProgressBar] = useState(true);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [isLandscapeLocked, setIsLandscapeLocked] = useState(false);
 
   // Load default settings from app preferences
   useEffect(() => {
@@ -57,9 +59,30 @@ export default function SlideshowScreen({ route, navigation }) {
       setTransition(defaults.transition);
       setSpeed(defaults.speed);
       setShowProgressBar(defaults.showProgressBar);
+      if (defaults.landscapeInSlideshow) {
+        setIsLandscapeLocked(true);
+        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+      }
       setSettingsLoaded(true);
     })();
   }, []);
+
+  // Restore default orientation on unmount
+  useEffect(() => {
+    return () => {
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.DEFAULT);
+    };
+  }, []);
+
+  const toggleOrientationLock = useCallback(async () => {
+    if (isLandscapeLocked) {
+      setIsLandscapeLocked(false);
+      await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.DEFAULT);
+    } else {
+      setIsLandscapeLocked(true);
+      await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+    }
+  }, [isLandscapeLocked]);
 
   // Double-buffer: two layers with their own image index
   const [layerAIndex, setLayerAIndex] = useState(0);
@@ -391,9 +414,14 @@ export default function SlideshowScreen({ route, navigation }) {
             <Text style={styles.counter}>
               {currentIndex + 1} / {assets.length}
             </Text>
-            <TouchableOpacity style={styles.iconBtn} onPress={() => setShowSettings(true)}>
-              <Text style={styles.iconText}>⚙</Text>
-            </TouchableOpacity>
+            <View style={styles.topBarRight}>
+              <TouchableOpacity style={styles.iconBtn} onPress={toggleOrientationLock}>
+                <Text style={[styles.iconText, isLandscapeLocked && styles.iconTextActive]}>⤢</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.iconBtn} onPress={() => setShowSettings(true)}>
+                <Text style={styles.iconText}>⚙</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Bottom bar */}
@@ -513,6 +541,10 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
+  topBarRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   iconBtn: {
     width: 44,
     height: 44,
@@ -522,6 +554,9 @@ const styles = StyleSheet.create({
   iconText: {
     color: '#fff',
     fontSize: 22,
+  },
+  iconTextActive: {
+    color: '#4da6ff',
   },
   counter: {
     color: 'rgba(255,255,255,0.8)',

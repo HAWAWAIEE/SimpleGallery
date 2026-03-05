@@ -6,6 +6,7 @@ export const DEFAULT_SETTINGS = {
   transition: 'fade',
   speed: 4000,
   showProgressBar: true,
+  landscapeInSlideshow: false,
 };
 
 export async function getSlideshowSettings() {

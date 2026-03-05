@@ -89,6 +89,20 @@ export default function SettingsScreen({ navigation }) {
       <Text style={styles.switchDesc}>
         현재 슬라이드의 남은 시간을 상단 바로 표시합니다.
       </Text>
+
+      <Text style={styles.label}>화면 방향</Text>
+      <View style={styles.switchRow}>
+        <Text style={styles.switchLabel}>슬라이드쇼 시 가로 모드</Text>
+        <Switch
+          value={settings.landscapeInSlideshow}
+          onValueChange={(v) => updateSetting('landscapeInSlideshow', v)}
+          trackColor={{ false: '#555', true: '#4da6ff' }}
+          thumbColor="#fff"
+        />
+      </View>
+      <Text style={styles.switchDesc}>
+        슬라이드쇼 시작 시 자동으로 가로 모드로 전환합니다. 슬라이드쇼 중에도 버튼으로 변경할 수 있습니다.
+      </Text>
     </ScrollView>
   );
 }
